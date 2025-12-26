@@ -1,0 +1,93 @@
+robot_profile:
+  summary: "A dual-hand (left and right), 8-fingered robotic pianist. The system's primary challenge is the efficient coordination of both hands to play complex pieces while actively managing workspace, now featuring proactive collision avoidance logic."
+
+  physical_constraints:
+    manipulators: "Dual-Hand (Left and Right)"
+    end_effectors:
+      total_count: 8
+      per_hand_count: 4
+      right_hand_fingers: ["index", "middle", "ring", "pinky"]
+      left_hand_fingers: ["index", "middle", "ring", "pinky"]
+    key_mapping:
+      finger_span: "Fixed and static (23mm spacing)"
+      layout_description: "The left hand is a mirror image of the right. The 'index' finger serves as the kinematic anchor for both."
+      right_hand_example: "Wrist at 'F5' maps fingers sequentially to the right: index -> F5, middle -> G5, ring -> A5, pinky -> B5."
+      left_hand_example: "Wrist at 'E4' maps fingers sequentially to the left: index -> E4, middle -> D4, ring -> C4, pinky -> B3."
+    workspace_limitations:
+      playable_keys: "White keys only"
+      combined_playable_range: "A2 to G6"
+      default_hand_assignments:
+        description: "The keyboard is logically divided to assign notes to a default hand, minimizing ambiguity and travel time."
+        left_hand_exclusive: "A2 through B3"
+        right_hand_exclusive: "C5 through G6"
+        overlap_notes: "['C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'B4']"
+      
+  performance_characteristics:
+    motion_speeds:
+      finger_speed: "50-500 (default 200) - servo movement speed"
+      wrist_speed: "10-200 (default 100) - arm movement percentage"
+    wrist_dynamics:
+      latency: "High latency for repositioning, proportional to travel distance."
+      planning_consideration: "Planners should orchestrate movements for both hands to maximize notes played per wrist position and minimize total travel distance."
+  collision_avoidance:
+    capability: "Proactive collision avoidance through pre-planning. The planner must ensure that both hands maintain a minimum safety distance of 12cm at all times during execution."
+    approach: "Pre-planning based. Before executing any sequence, the planner analyzes the spatial positions of both wrists throughout the entire movement sequence to prevent violations."
+    constraint: "12cm minimum separation distance must be maintained between both hands at all times."
+    planning_strategy: "The planner should orchestrate hand movements to ensure smooth, continuous operation by:
+      - Sequencing movements so hands naturally maintain separation
+      - Scheduling non-conflicting movements in parallel when possible
+      - Deferring or reordering movements that would violate the 12cm constraint
+      - Moving hands to intermediate safe positions when necessary to enable subsequent movements"
+    responsibility: "User-side. The high-level planner is responsible for creating movement sequences that respect the 12cm separation constraint throughout execution, ensuring fluid and collision-free performance."
+
+  available_apis:
+    - name: move_to_home_position
+      description: "Moves arm(s) to predefined home position using joint angles."
+      parameters:
+        - { name: hand, type: string, accepted_values: [left, right, both] }
+      home_positions:
+        left_joints: [-90.78, -78.3, -80.91, -11.01, 58.54, 83.11]
+        right_joints: [90.65, 71.04, 91.74, 3.13, -71.55, 162.37]
+
+    - name: calibrate_piano_base_position
+      description: "Calibrates base position. If wait_for_input=False, assumes arms are at home position."
+      parameters:
+        - { name: hand, type: string, accepted_values: [left, right, both] }
+        - { name: wait_for_input, type: bool, default: false }
+
+    - name: move_wrist_to_note
+      description: "Repositions the wrist of a specified hand. This is a blocking call and is typically handled internally by play_key."
+      kinematic_anchor: "Aligns the 'index' finger of the specified hand directly over the target_note."
+      parameters:
+        - { name: hand_name, type: string, accepted_values: [left, right] }
+        - { name: wrist_target_note, type: string, description: "The white key to align the index finger with." }
+
+    - name: play_key
+      description: "Intelligently selects the best hand and finger to play a given note. This is a blocking call."
+      parameters:
+        - { name: note, type: string, description: "The musical note to play (e.g., 'C4')." }
+        - { name: duration, type: float, unit: seconds }
+        - { name: prefer_hand, type: string, accepted_values: [left, right, null], description: "Optional override for hand selection." }
+
+    - name: set_speeds
+      description: "Updates finger_speed (50-500) and/or wrist_speed (10-200) for subsequent movements."
+      parameters:
+        - { name: finger_speed, type: int, optional: true }
+        - { name: wrist_speed, type: int, optional: true }
+
+    - name: return_to_base
+      description: "Returns specified hand(s) to calibrated base position."
+      parameters:
+        - { name: hand, type: string, accepted_values: [left, right, both] }
+
+    - name: emergency_stop
+      description: "Immediately stops all arm motion. Automatically triggered by Ctrl+C."
+        
+  calibration_and_state:
+    calibration:
+      description: "Each hand must be calibrated to a unique anchor note, which defines its base coordinate frame for all subsequent movements."
+      left_hand_anchor: "'E4'"
+      right_hand_anchor: "'F5'"
+    proprioception:
+      description: "Maintains the internal state for both wrists independently."
+      tracked_state: "calibrated status, base position/orientation, current wrist note, last played note, current pose"
